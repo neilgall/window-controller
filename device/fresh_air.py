@@ -24,8 +24,8 @@ class WindowController:
     gpio.output(pin, gpio.LOW)
 
   def open_windows(self):
-    push_button(OPEN_WINDOWS_PIN)
+    self.push_button(OPEN_WINDOWS_PIN)
 
   def close_windows(self):
-    push_button(CLOSE_WINDOWS_PIN)
+    self.push_button(CLOSE_WINDOWS_PIN)
 
