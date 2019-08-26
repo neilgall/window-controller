@@ -8,6 +8,8 @@ ExecStart=/usr/bin/python3 ./iot_listener.py
 StandardOutput=syslog
 StandardError=syslog
 Restart=on-failure
+Environment=AWS_ACCESS_KEY_ID=<your-access-key-id>
+Environment=AWS_SECRET_ACCESS_KEY=<your-secret-access-key>
 
 [Install]
 WantedBy=multi-user.target
