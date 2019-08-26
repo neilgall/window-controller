@@ -1,0 +1,7 @@
+*.pem
+*.key
+*.crt
+*.pyc
+__pycache__
+.vscode
+
