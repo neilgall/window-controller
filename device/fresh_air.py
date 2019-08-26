@@ -13,6 +13,7 @@ class WindowController:
     gpio.setup(CLOSE_WINDOWS_PIN, gpio.OUT)
     gpio.output(OPEN_WINDOWS_PIN, gpio.LOW)
     gpio.output(CLOSE_WINDOWS_PIN, gpio.LOW)
+    return self
 
   def __exit__(self, *args):
     gpio.cleanup()
