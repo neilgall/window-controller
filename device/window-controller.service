@@ -1,0 +1,15 @@
+[Unit]
+Description=Window Controller Service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/window-controller/device
+ExecStart=/usr/bin/python3 ./iot_listener.py
+StandardOutput=syslog
+StandardError=syslog
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+
+
