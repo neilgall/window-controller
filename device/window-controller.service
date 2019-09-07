@@ -10,6 +10,8 @@ StandardError=syslog
 Restart=on-failure
 Environment=AWS_ACCESS_KEY_ID=<your-access-key-id>
 Environment=AWS_SECRET_ACCESS_KEY=<your-secret-access-key>
+Environment=PUSHOVER_USER_KEY=<your-pushover-user-key>
+Environment=PUSHOVER_API_TOKEN=<your-pushover-api-token>
 
 [Install]
 WantedBy=multi-user.target

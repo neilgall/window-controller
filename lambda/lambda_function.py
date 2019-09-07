@@ -1,6 +1,7 @@
 
 import boto3
 import json
+import time
 from alexa.skills.smarthome import AlexaResponse
 
 aws_iot = boto3.client('iot-data')
@@ -57,10 +58,14 @@ def lambda_handler(request, context):
 
         # Check for an error when setting the state
         state_set = set_device_state(endpoint_id=endpoint_id, value=power_state_value)
-        if not state_set:
+        if state_set is None:
             return AlexaResponse(
                 name='ErrorResponse',
                 payload={'type': 'ENDPOINT_UNREACHABLE', 'message': 'Unable to reach endpoint database.'}).get()
+        elif not state_set:
+            return AlexaResponse(
+                name='ErrorResponse',
+                payload={'type': 'ENDPOINT_UNREACHABLE', 'message': 'I did not get a response from the window controller.'}).get()
 
         apcr = AlexaResponse(correlation_token=correlation_token)
         apcr.add_context_property(namespace='Alexa.PowerController', name='powerState', value=power_state_value)
@@ -84,5 +89,16 @@ def set_device_state(endpoint_id, value):
             }
         })
     )
-    return response
+    if response is None:
+        return
+
+    # wait for the reported state to change
+    timeout = time.time() + 5
+    while time.time() < timeout:
+        time.sleep(0.25)
+        shadow = json.load(aws_iot.get_thing_shadow(thingName=endpoint_id)['payload'])
+        if shadow['state']['reported']['state'] == value:
+            return True
+
+    return False
 

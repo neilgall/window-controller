@@ -35,13 +35,12 @@ def create_iot():
 def create_shadow_handler(iot, callback):
     shadow = iot.createShadowHandlerWithName(thingName, True)
 
-    def on_update(oayload, responseStatus, token):
-        pass
-
     def on_delta(payload, responseStatus, token):
-        state = json.loads(payload)["state"]["state"]
-        callback(state == "ON")
-        shadow.shadowUpdate(json.dumps({ "reported": { "state": state } }), on_update, 5)
+        print(payload)
+        state = json.loads(payload)["state"].get("state")
+        if state is not None:
+            callback(state == "ON")
+            shadow.shadowUpdate(json.dumps({ "state": { "reported": { "state": state } } }), None, 5)
 
     shadow.shadowRegisterDeltaCallback(on_delta)
 
