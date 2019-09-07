@@ -96,9 +96,12 @@ def set_device_state(endpoint_id, value):
     timeout = time.time() + 5
     while time.time() < timeout:
         time.sleep(0.25)
-        shadow = json.load(aws_iot.get_thing_shadow(thingName=endpoint_id)['payload'])
-        if shadow['state']['reported']['state'] == value:
-            return True
+        try:
+            shadow = json.load(aws_iot.get_thing_shadow(thingName=endpoint_id)['payload'])
+            if shadow['state']['reported']['state'] == value:
+                return True
+        except:
+            pass
 
     return False
 
