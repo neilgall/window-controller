@@ -2,8 +2,9 @@
 from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTShadowClient
 from fresh_air import WindowController
 import logging
-import time
 import json
+import pushover
+import time
 
 
 host = "aa40w08kkflrp-ats.iot.eu-west-1.amazonaws.com"
@@ -20,16 +21,6 @@ streamHandler.setFormatter(formatter)
 logger.addHandler(streamHandler)
 
 
-def shadow_callback(window_controller):
-    def callback(payload, responseStatus, token):
-        if json.loads(payload)["state"]["state"] == "ON":
-            window_controller.open_windows()
-        else:
-            window_controller.close_windows()
-    
-    return callback
-
-
 def create_iot():
     iot = AWSIoTMQTTShadowClient(clientId, useWebsocket=True)
     iot.configureEndpoint(host, port)
@@ -42,14 +33,30 @@ def create_iot():
 
 
 def create_shadow_handler(iot, callback):
-    handler = iot.createShadowHandlerWithName(thingName, True)
-    handler.shadowRegisterDeltaCallback(callback)
+    shadow = iot.createShadowHandlerWithName(thingName, True)
+
+    def on_update(oayload, responseStatus, token):
+        pass
+
+    def on_delta(payload, responseStatus, token):
+        state = json.loads(payload)["state"]["state"]
+        callback(state == "ON")
+        shadow.shadowUpdate(json.dumps({ "reported": { "state": state } }), on_update, 5)
+
+    shadow.shadowRegisterDeltaCallback(on_delta)
 
 
 if __name__ == "__main__":
     with WindowController() as window_controller:
-        iot = create_iot()
-        create_shadow_handler(iot, shadow_callback(window_controller))
+        def callback(state):
+            if state:
+                window_controller.open_windows()
+                pushover.send("Fresh Air", "Windows opened!")
+            else:
+                window_controller.close_windows()
+                pushover.send("Fresh Air", "Windows closed!")
+        
+        create_shadow_handler(create_iot(), callback)
 
         while True:
             time.sleep(1)
