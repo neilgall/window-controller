@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTShadowClient
-from fresh_air import WindowController
+from garden_controller import GardenController
 import logging
 import json
 import pushover
@@ -46,13 +46,13 @@ def create_shadow_handler(iot, callback):
 
 
 if __name__ == "__main__":
-    with WindowController() as window_controller:
+    with GardenController() as garden_controller:
         def callback(state):
             if state:
-                window_controller.open_windows()
+                garden_controller.lights_on()
                 pushover.send("Garden Lights", "Lights on!")
             else:
-                window_controller.close_windows()
+                garden_controller.lights_off()
                 pushover.send("Garden Lights", "Lights off!")
         
         create_shadow_handler(create_iot(), callback)

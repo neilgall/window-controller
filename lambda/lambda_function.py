@@ -5,7 +5,9 @@ import time
 import logging
 from alexa.skills.smarthome import AlexaResponse
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
 aws_iot = boto3.client('iot-data')
 
 
@@ -18,7 +20,7 @@ _DEVICES = [
     {
         'friendly_name': 'Garden Fairy Lights',
         'description': 'Fairy Lights all around the Garden',
-        'endpoint_id': 'garden'    
+        'endpoint_id': 'garden-lights'    
     }
 ]
 
@@ -28,7 +30,7 @@ def error(**kwargs):
     Build an error response
     """
     rsp = AlexaResponse(name='ErrorResponse', payload=kwargs).get()
-    logging.debug(f'lambda handler failed; response: {json.dumps(rsp)}')
+    logger.debug(f'lambda handler failed; response: {json.dumps(rsp)}')
     return rsp
 
 
@@ -36,7 +38,7 @@ def success(obj):
     """
     Log a successful response object
     """
-    logging.debug(f'lambda handler success; response: {json.dumps(obj)}')
+    logger.debug(f'lambda handler success; response: {json.dumps(obj)}')
     return obj
 
 
@@ -128,8 +130,8 @@ def lambda_handler(request, context):
     """
     Entry point
     """
-    logging.debug(f'lambda_handler request {json.dumps(request)}')
-    logging.debug(f'lambda_handler context {context}')
+    logger.debug(f'lambda_handler request {json.dumps(request)}')
+    logger.debug(f'lambda_handler context {context}')
 
     if 'directive' not in request:
         return error(type='INVALID_DIRECTIVE', message='Missing key: directive, Is the request a valid Alexa Directive?')
