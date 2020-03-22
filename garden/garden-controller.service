@@ -1,9 +1,9 @@
 [Unit]
-Description=Window Controller Service
+Description=Garden Lights Controller Service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/pi/window-controller/fresh-air
+WorkingDirectory=/home/pi/window-controller/garden
 ExecStart=/usr/bin/python3 ./iot_listener.py
 StandardOutput=syslog
 StandardError=syslog
