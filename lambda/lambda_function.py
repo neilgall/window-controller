@@ -2,83 +2,87 @@
 import boto3
 import json
 import time
+import logging
 from alexa.skills.smarthome import AlexaResponse
 
+logging.basicConfig(level=logging.INFO)
 aws_iot = boto3.client('iot-data')
 
-def lambda_handler(request, context):
-    print('lambda_handler request  -----')
-    print(json.dumps(request))
 
-    if context is not None:
-        print('lambda_handler context  -----')
-        print(context)
+_DEVICES = [
+    {
+        'friendly_name': 'Fresh Air',
+        'description': 'Windows in Family Room',
+        'endpoint_id': 'fresh-air'
+    },
+    {
+        'friendly_name': 'Garden Fairy Lights',
+        'description': 'Fairy Lights all around the Garden',
+        'endpoint_id': 'garden'    
+    }
+]
 
-    # Validate we have an Alexa directive
-    if 'directive' not in request:
-        aer = AlexaResponse(
-            name='ErrorResponse',
-            payload={'type': 'INVALID_DIRECTIVE',
-                     'message': 'Missing key: directive, Is the request a valid Alexa Directive?'})
-        return send_response(aer.get())
 
-    # Check the payload version
-    payload_version = request['directive']['header']['payloadVersion']
-    if payload_version != '3':
-        aer = AlexaResponse(
-            name='ErrorResponse',
-            payload={'type': 'INTERNAL_ERROR',
-                     'message': 'This skill only supports Smart Home API version 3'})
-        return send_response(aer.get())
+def error(**kwargs):
+    """
+    Build an error response
+    """
+    rsp = AlexaResponse(name='ErrorResponse', payload=kwargs).get()
+    logging.debug(f'lambda handler failed; response: {json.dumps(rsp)}')
+    return rsp
 
-    # Crack open the request and see what is being requested
-    name = request['directive']['header']['name']
-    namespace = request['directive']['header']['namespace']
 
-    # Handle the incoming request from Alexa based on the namespace
+def success(obj):
+    """
+    Log a successful response object
+    """
+    logging.debug(f'lambda handler success; response: {json.dumps(obj)}')
+    return obj
 
-    if namespace == 'Alexa.Discovery':
-        if name == 'Discover':
-            adr = AlexaResponse(namespace='Alexa.Discovery', name='Discover.Response')
-            capability_alexa = adr.create_payload_endpoint_capability()
-            capability_alexa_powercontroller = adr.create_payload_endpoint_capability(
-                interface='Alexa.PowerController',
-                supported=[{'name': 'powerState'}])
+
+def discover_devices(request):
+    """
+    Discover the declared devices this handler supports
+    """
+    command = request['directive']['header']['name']
+    if command == 'Discover':
+        adr = AlexaResponse(namespace='Alexa.Discovery', name='Discover.Response')
+        capability_alexa = adr.create_payload_endpoint_capability()
+        capability_alexa_powercontroller = adr.create_payload_endpoint_capability(
+            interface='Alexa.PowerController',
+            supported=[{'name': 'powerState'}])
+        for device in _DEVICES:               
             adr.add_payload_endpoint(
-                friendly_name='Fresh Air',
-                descripton='Windows in Family Room',
-                endpoint_id='fresh-air',
-                capabilities=[capability_alexa, capability_alexa_powercontroller])
-            return send_response(adr.get())
-
-    if namespace == 'Alexa.PowerController':
-        endpoint_id = request['directive']['endpoint']['endpointId']
-        power_state_value = 'OFF' if name == 'TurnOff' else 'ON'
-        correlation_token = request['directive']['header']['correlationToken']
-
-        # Check for an error when setting the state
-        state_set = set_device_state(endpoint_id=endpoint_id, value=power_state_value)
-        if state_set is None:
-            return AlexaResponse(
-                name='ErrorResponse',
-                payload={'type': 'ENDPOINT_UNREACHABLE', 'message': 'Unable to reach endpoint database.'}).get()
-        elif not state_set:
-            return AlexaResponse(
-                name='ErrorResponse',
-                payload={'type': 'ENDPOINT_UNREACHABLE', 'message': 'I did not get a response from the window controller.'}).get()
-
-        apcr = AlexaResponse(correlation_token=correlation_token)
-        apcr.add_context_property(namespace='Alexa.PowerController', name='powerState', value=power_state_value)
-        return send_response(apcr.get())
+                capabilities=[capability_alexa, capability_alexa_powercontroller],
+                **device
+            )
+        return success(adr.get())
 
 
-def send_response(response):
-    print('lambda_handler response -----')
-    print(json.dumps(response))
-    return response
+def control_device(request):
+    """
+    Control a specific device
+    """
+    power_state_value = 'OFF' if request['directive']['header']['name'] == 'TurnOff' else 'ON'
+    endpoint_id = request['directive']['endpoint']['endpointId']
+    correlation_token = request['directive']['header']['correlationToken']
+
+    # Check for an error when setting the state
+    state_set = set_device_state(endpoint_id=endpoint_id, value=power_state_value)
+    if state_set is None:
+        return error(type='ENDPOINT_UNREACHABLE', message='Unable to reach endpoint database.')
+    elif not state_set:
+        return error(type='ENDPOINT_UNREACHABLE', message='I did not get a response from the device controller.')
+
+    apcr = AlexaResponse(correlation_token=correlation_token)
+    apcr.add_context_property(namespace='Alexa.PowerController', name='powerState', value=power_state_value)
+    return success(apcr.get())
 
 
 def set_device_state(endpoint_id, value):
+    """
+    Update the shadow state for a device, and wait for it to change
+    """
     response = aws_iot.update_thing_shadow(
         thingName=endpoint_id,
         payload=json.dumps({
@@ -104,4 +108,37 @@ def set_device_state(endpoint_id, value):
             pass
 
     return False
+
+
+_ACTIONS = {
+    'Alexa.Discovery': discover_devices,
+    'Alexa.PowerController': control_device
+}
+
+
+def is_valid_payload_version(request):
+    """
+    Check the API version in the request
+    """
+    payload_version = request['directive']['header']['payloadVersion']
+    return payload_version == '3'
+
+
+def lambda_handler(request, context):
+    """
+    Entry point
+    """
+    logging.debug(f'lambda_handler request {json.dumps(request)}')
+    logging.debug(f'lambda_handler context {context}')
+
+    if 'directive' not in request:
+        return error(type='INVALID_DIRECTIVE', message='Missing key: directive, Is the request a valid Alexa Directive?')
+
+    if not is_valid_payload_version(request):
+        return error(type='INTERNAL_ERROR', message='This skill only supports Smart Home API version 3')
+
+    name = request['directive']['header']['name']
+    namespace = request['directive']['header']['namespace']
+
+    return _ACTIONS[namespace](request)
 
