@@ -18,5 +18,6 @@ There are several components:
 * The Lambda function updates the state for an [AWS IoT Core](https://aws.amazon.com/iot-core/) device
 * The Raspberry Pi runs a simple script which subscribes and acts on changes to the state in IoT core
 
-
-
+Update March 2020: Now extended to cover a second Raspberry Pi Zero in
+the garden which controls my wife's beloved fairy lights which string along
+the fence and around the trees!
