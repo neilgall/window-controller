@@ -10,7 +10,7 @@ logger.addHandler(streamHandler)
 try:
   import RPi.GPIO as gpio
 
-  READY_PIN = 25
+  READY_PIN = 23
   LIGHTS_PIN = 17
 
   class WindowController:
