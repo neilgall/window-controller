@@ -1,6 +1,6 @@
 import logging
 
-logger = logging.getLogger("WindowController")
+logger = logging.getLogger("GardenController")
 logger.setLevel(logging.INFO)
 streamHandler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -13,7 +13,7 @@ try:
   READY_PIN = 23
   LIGHTS_PIN = 17
 
-  class WindowController:
+  class GardenController:
     def __enter__(self):
       gpio.setwarnings(False)
       gpio.setmode(gpio.BCM)
