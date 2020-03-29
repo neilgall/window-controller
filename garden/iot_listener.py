@@ -58,4 +58,5 @@ if __name__ == "__main__":
         create_shadow_handler(create_iot(), callback)
 
         while True:
+            garden_controller.poll_switch()
             time.sleep(1)
