@@ -1,103 +1,141 @@
+
 import logging
 import threading
 import time
+from queue import Queue, Empty
+
 
 logger = logging.getLogger("GardenController")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 streamHandler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 streamHandler.setFormatter(formatter)
 logger.addHandler(streamHandler)
 
+
 try:
   import RPi.GPIO as gpio
 
   READY_PIN = 23
-  LIGHTS_PIN = 17
-  SWITCH_PIN = 22
-
-  class PollThread(threading.Thread):
-    def __init__(self, read_state_fn, on_change_fn):
-      threading.Thread.__init__(self)
-      self._read_state = read_state_fn
-      self._on_change = on_change_fn
-      self._switch_state = read_state_fn()
-      self._stopped = False
+  SWITCH_PIN = 17
+  LIGHTS_PINS = [14, 15, 24, 25]
+  EVENT_ON = "on"
+  EVENT_OFF = "off"
+  EVENT_EXIT = "exit"
+  ON_DELAY = 2.0
 
 
-    def run(self):
-      logger.debug("Starting polling thread")
-      while not self._stopped:
-        switch = self._read_state()
-        logger.debug(f"poll switch state={switch} was={self._switch_state}")
-        if switch != self._switch_state:
-          self._switch_state = switch
-          self._on_change(switch)
-        time.sleep(1)
-
-
-    def stop(self):
-      logger.debug("Stopping polling thread")
-      self._stopped = True
-      self.join()
-
-
-  class GardenController:
+  class ControlThread(threading.Thread):
     def __init__(self):
-      self._lights_state = False
+      threading.Thread.__init__(self)
 
-
-    def __enter__(self):
       gpio.setwarnings(False)
       gpio.setmode(gpio.BCM)
       gpio.setup(READY_PIN, gpio.OUT)
-      gpio.setup(LIGHTS_PIN, gpio.OUT)
       gpio.setup(SWITCH_PIN, gpio.IN, pull_up_down=gpio.PUD_UP)
       gpio.output(READY_PIN, gpio.HIGH)
-      gpio.output(LIGHTS_PIN, gpio.LOW)
-      self._poll_thread = PollThread(self._read_switch, self._toggle_lights)
-      self._poll_thread.start()
+
+      for pin in LIGHTS_PINS:
+        gpio.setup(pin, gpio.OUT)
+        gpio.output(pin, gpio.LOW)
+
+      self._queue = Queue()
+
+
+    def set_lights_state(self, state):
+      event = EVENT_ON if state else EVENT_OFF
+      logger.debug(f"sending {event} event")
+      self._queue.put(event)
+
+
+    def exit(self):
+      logger.debug(f"sending {EVENT_EXIT} event")
+      self._queue.put(EVENT_EXIT)
+      self.join()
+
+      gpio.output(READY_PIN, gpio.LOW)
+      for pin in LIGHTS_PINS:
+        gpio.output(pin, gpio.LOW)
+      gpio.cleanup()
+
+
+    def run(self):
+      logger.debug("Starting control thread")
+      self._switch_state = self._read_switch()
+      self._lights_state = False
+
+      while True:
+        try:
+          event = self._queue.get(block=True, timeout=1)
+          if event == EVENT_EXIT:
+            logger.debug("exit")
+            break
+
+          elif event == EVENT_ON:
+            self._lights_on()
+
+          elif event == EVENT_OFF:
+            self._lights_off()
+
+        except Empty:
+          switch = self._read_switch()
+          if switch != self._switch_state:
+            self._switch_state = switch
+            self._toggle_lights()
+
+
+    def _lights_on(self):
+      for pin in LIGHTS_PINS:
+        logger.debug(f"pin {pin} on")
+        gpio.output(pin, gpio.HIGH)
+        time.sleep(ON_DELAY)
+      self._lights_state = True
+
+
+    def _lights_off(self):
+      for pin in LIGHTS_PINS:
+        logger.debug(f"pin {pin} off")
+        gpio.output(pin, gpio.LOW)
+      self._lights_state = False
+
+
+    def _toggle_lights(self):
+      if self._lights_state:
+        self._lights_off()
+      else:
+        self._lights_on()
+
+
+    def _read_switch(self):
+      return gpio.input(SWITCH_PIN) != 0
+
+
+
+  class GardenController:
+
+    def __enter__(self):
+      self._controller = ControlThread()
+      self._controller.start()
       return self
 
 
     def __exit__(self, *args):
-      self._poll_thread.stop()
-      gpio.output(READY_PIN, gpio.LOW)
-      gpio.output(LIGHTS_PIN, gpio.LOW)
-      gpio.cleanup()
-
-
-    def _read_switch(self):
-      """
-      Read the current switch state
-      """
-      return gpio.input(SWITCH_PIN)
-
-
-    def _toggle_lights(self, switch_state):
-      """
-      Toggle the lights from their current state
-      """
-      if self._lights_state:
-        self.lights_off()
-      else:
-        self.lights_on()
+      self._controller.exit()
+      self._controller = None
 
 
     def lights_on(self):
       """
       Turn the lights on
       """
-      gpio.output(LIGHTS_PIN, gpio.HIGH)
-      self._lights_state = True
+      self._controller.set_lights_state(True)
 
 
     def lights_off(self):
       """
       Turn the lights off
       """
-      gpio.output(LIGHTS_PIN, gpio.LOW)
-      self._lights_state = False
+      self._controller.set_lights_state(False)
 
 
 except:
