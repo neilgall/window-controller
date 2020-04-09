@@ -1,24 +1,22 @@
 
-import logging
+import logger
 import threading
 import time
 from queue import Queue, Empty
 
 
-logger = logging.getLogger("GardenController")
-logger.setLevel(logging.DEBUG)
-streamHandler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-streamHandler.setFormatter(formatter)
-logger.addHandler(streamHandler)
+_LOG = logger.create("garden_controller", logger.INFO)
 
+_ZONES = {
+  'summerhouse-lights': [24],
+  'garden-lights': [14, 15, 25]
+}
 
 try:
   import RPi.GPIO as gpio
 
   READY_PIN = 23
   SWITCH_PIN = 17
-  LIGHTS_PINS = [14, 15, 24, 25]
   EVENT_ON = "on"
   EVENT_OFF = "off"
   EVENT_EXIT = "exit"
@@ -35,76 +33,83 @@ try:
       gpio.setup(SWITCH_PIN, gpio.IN, pull_up_down=gpio.PUD_UP)
       gpio.output(READY_PIN, gpio.HIGH)
 
-      for pin in LIGHTS_PINS:
-        gpio.setup(pin, gpio.OUT)
-        gpio.output(pin, gpio.LOW)
+      for zone_pins in _ZONES.values():
+        for pin in zone_pins:
+          gpio.setup(pin, gpio.OUT)
+          gpio.output(pin, gpio.LOW)
 
       self._queue = Queue()
 
 
-    def set_lights_state(self, state):
+    def set_lights_state(self, zone, state):
       event = EVENT_ON if state else EVENT_OFF
-      logger.debug(f"sending {event} event")
-      self._queue.put(event)
+      _LOG.debug(f"sending {event} event for zone {zone}")
+      self._queue.put((event, zone))
 
 
     def exit(self):
-      logger.debug(f"sending {EVENT_EXIT} event")
-      self._queue.put(EVENT_EXIT)
+      _LOG.debug(f"sending {EVENT_EXIT} event")
+      self._queue.put((EVENT_EXIT, None))
       self.join()
 
       gpio.output(READY_PIN, gpio.LOW)
-      for pin in LIGHTS_PINS:
-        gpio.output(pin, gpio.LOW)
+      for zone_pins in _ZONES.values():
+        for pin in zone_pins:
+          gpio.output(pin, gpio.LOW)
       gpio.cleanup()
 
 
     def run(self):
-      logger.debug("Starting control thread")
+      _LOG.debug("Starting control thread")
       self._switch_state = self._read_switch()
-      self._lights_state = False
+      self._lights_state = { zone: False for zone in _ZONES.keys() }
 
       while True:
         try:
-          event = self._queue.get(block=True, timeout=1)
+          event, zone = self._queue.get(block=True, timeout=1)
           if event == EVENT_EXIT:
-            logger.debug("exit")
+            _LOG.debug("exit")
             break
 
           elif event == EVENT_ON:
-            self._lights_on()
+            self._lights_on(zone)
 
           elif event == EVENT_OFF:
-            self._lights_off()
+            self._lights_off(zone)
+
+          else:
+            _LOG.error(f"unknown event {event} for zone {zone}")
 
         except Empty:
           switch = self._read_switch()
           if switch != self._switch_state:
             self._switch_state = switch
-            self._toggle_lights()
+            self._toggle_lights('summerhouse-lights')
+
+        except Exception as e:
+          _LOG.error(f"unable to process event {event} for zone {zone}: {e}")
 
 
-    def _lights_on(self):
-      for pin in LIGHTS_PINS:
-        logger.debug(f"pin {pin} on")
+    def _lights_on(self, zone):
+      for pin in _ZONES[zone]:
+        _LOG.debug(f"pin {pin} on")
         gpio.output(pin, gpio.HIGH)
         time.sleep(ON_DELAY)
-      self._lights_state = True
+      self._lights_state[zone] = True
 
 
-    def _lights_off(self):
-      for pin in LIGHTS_PINS:
-        logger.debug(f"pin {pin} off")
+    def _lights_off(self, zone):
+      for pin in _ZONES[zone]:
+        _LOG.debug(f"pin {pin} off")
         gpio.output(pin, gpio.LOW)
-      self._lights_state = False
+      self._lights_state[zone] = False
 
 
-    def _toggle_lights(self):
-      if self._lights_state:
-        self._lights_off()
+    def _toggle_lights(self, zone):
+      if self._lights_state[zone]:
+        self._lights_off(zone)
       else:
-        self._lights_on()
-
+        self._lights_on(zone)
 
     def _read_switch(self):
       return gpio.input(SWITCH_PIN) != 0
@@ -112,7 +117,6 @@ try:
 
 
   class GardenController:
-
     def __enter__(self):
       self._controller = ControlThread()
       self._controller.start()
@@ -124,36 +128,30 @@ try:
       self._controller = None
 
 
-    def lights_on(self):
-      """
-      Turn the lights on
-      """
-      self._controller.set_lights_state(True)
+    def lights_on(self, zone):
+      self._controller.set_lights_state(zone, True)
 
 
-    def lights_off(self):
-      """
-      Turn the lights off
-      """
-      self._controller.set_lights_state(False)
+    def lights_off(self, zone):
+      self._controller.set_lights_state(zone, False)
 
 
 except:
   class GardenController:
     def __enter__(self):
-      logger.info("no RPi hardware found; using dev GardenController")
+      _LOG.info("no RPi hardware found; using dev GardenController")
       return self
 
     def __exit__(self, *args):
       pass
 
 
-    def lights_on(self):
-      logger.info("on")
+    def lights_on(self, zone):
+      _LOG.info(f"{zone} on")
 
 
-    def lights_off(self):
-      logger.info("off")
+    def lights_off(self, zone):
+      _LOG.info(f"{zone} off")
 
 
 if __name__ == "__main__":

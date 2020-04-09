@@ -18,6 +18,11 @@ _DEVICES = [
         'endpoint_id': 'fresh-air'
     },
     {
+        'friendly_name': 'Summer House',
+        'description': 'Internal lights in the summerhouse',
+        'endpoint_id': 'summerhouse-lights'
+    },
+    {
         'friendly_name': 'Garden Fairy Lights',
         'description': 'Fairy Lights all around the Garden',
         'endpoint_id': 'garden-lights'    
