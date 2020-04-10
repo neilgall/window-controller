@@ -13,25 +13,7 @@ _ROOT_CA_PATH = "./root-CA.crt"
 _CLIENT_ID = "garden-controller"
 _CLIENT_NAME = "Garden Controller"
 
-_DEVICES = [
-    {
-        'friendly_name': 'Fresh Air',
-        'description': 'Windows in Family Room',
-        'endpoint_id': 'fresh-air'
-    },
-    {
-        'friendly_name': 'Summerhouse lights',
-        'description': 'Internal lights in the summerhouse',
-        'endpoint_id': 'summerhouse-lights'
-    },
-    {
-        'friendly_name': 'Garden Fairy Lights',
-        'description': 'Fairy Lights all around the Garden',
-        'endpoint_id': 'garden-lights'    
-    }
-]
-
-_LOG = logger.create("iot_listener", logger.INFO)
+_LOG = logger.create("iot_listener", logger.DEBUG)
 logger.create("AWSIoTPythonSDK.core", logger.WARN)
 
 
@@ -48,34 +30,59 @@ class IoTCoreClient:
     def create_shadow_handler(self, thing_name, handler):
         shadow = self._iot.createShadowHandlerWithName(thing_name, True)
 
-        def on_delta(payload, response_status, token):
-            state = json.loads(payload)["state"].get("state")
-            if state is not None:
-                real_state = handler(state == "ON")
-                shadow.shadowUpdate(json.dumps({ "state": { "reported": { "state": real_state } } }), None, 5)
+        def do_update(state):
+            value = "ON" if state else "OFF"
+            shadow.shadowUpdate(json.dumps({ "state": { "reported": { "state": value } } }), None, 5)
 
+        def on_get(payload, response_status, token):
+            _LOG.debug(f"{thing_name} on_delta {payload} {response_status}")
+            state = json.loads(payload)['state']['desired']['state']
+            if state in ['ON', 'OFF']:
+                handler(state == "ON")
+
+        def on_delta(payload, response_status, token):
+            _LOG.debug(f"{thing_name} on_delta {payload} {response_status}")
+            state = json.loads(payload)['state']['state']
+            if state in ['ON', 'OFF']:
+                handler(state == "ON")
+
+        shadow.shadowGet(on_get, 5)
         shadow.shadowRegisterDeltaCallback(on_delta)
+        return do_update
+
+
+class DeviceAdapter:
+    def __init__(self, endpoint, name, garden_controller):
+        self._endpoint = str(endpoint)
+        self._name = str(name)
+        self._garden_controller = garden_controller
+
+    def shadow_to_device(self, state):
+        _LOG.debug(f"{self._endpoint} shadow->device {state}")
+        if state:
+            self._garden_controller.lights_on(self._endpoint)
+        else:
+            self._garden_controller.lights_off(self._endpoint)
+
+    def device_to_shadow(self, state):
+        _LOG.debug(f"{self._endpoint} device->shadow {state}")
+        pushover.send(_CLIENT_NAME, f"{self._name} {'on' if state else 'off'}!")
+        self.update_hook(state)
 
 
 if __name__ == "__main__":
     with GardenController() as garden_controller:
         iot = IoTCoreClient()
 
-        for device in _DEVICES:
-            def callback(state):
-                if state:
-                    garden_controller.lights_on(device['endpoint_id'])
-                    pushover.send(_CLIENT_NAME, f"{device['friendly_name']} on!")
-                else:
-                    garden_controller.lights_off(device['endpoint_id'])
-                    pushover.send(_CLIENT_NAME, f"{device['friendly_name']} off!")
-                return state
-        
-            iot.create_shadow_handler(device['endpoint_id'], callback)
-            _LOG.info(f"Createed handler for {device['friendly_name']}")
+        for endpoint, zone in garden_controller.get_zones().items():
+            friendly_name = zone['friendly_name']
+            adapter = DeviceAdapter(endpoint, friendly_name, garden_controller)
+            adapter.update_hook = iot.create_shadow_handler(endpoint, adapter.shadow_to_device)
+
+            _LOG.info(f"Created handler for {friendly_name}")
 
         pushover.send(_CLIENT_ID, "Listener started")
-        
+
         try:
             while True:
                 time.sleep(1)
