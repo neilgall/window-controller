@@ -13,7 +13,7 @@ _ROOT_CA_PATH = "./root-CA.crt"
 _CLIENT_ID = "garden-controller"
 _CLIENT_NAME = "Garden Controller"
 
-_LOG = logger.create("iot_listener", logger.DEBUG)
+_LOG = logger.create("iot_listener", logger.INFO)
 logger.create("AWSIoTPythonSDK.core", logger.WARN)
 
 
@@ -30,18 +30,19 @@ class IoTCoreClient:
     def create_shadow_handler(self, thing_name, handler):
         shadow = self._iot.createShadowHandlerWithName(thing_name, True)
 
+        @logger.log_with(_LOG, device=thing_name)
         def do_update(state):
             value = "ON" if state else "OFF"
             shadow.shadowUpdate(json.dumps({ "state": { "reported": { "state": value } } }), None, 5)
 
+        @logger.log_with(_LOG, device=thing_name)
         def on_get(payload, response_status, token):
-            _LOG.debug(f"{thing_name} on_delta {payload} {response_status}")
             state = json.loads(payload)['state']['desired']['state']
             if state in ['ON', 'OFF']:
                 handler(state == "ON")
 
+        @logger.log_with(_LOG, device=thing_name)
         def on_delta(payload, response_status, token):
-            _LOG.debug(f"{thing_name} on_delta {payload} {response_status}")
             state = json.loads(payload)['state']['state']
             if state in ['ON', 'OFF']:
                 handler(state == "ON")
@@ -56,18 +57,26 @@ class DeviceAdapter:
         self._endpoint = str(endpoint)
         self._name = str(name)
         self._garden_controller = garden_controller
+        self._update_hook = None
 
+    def __repr__(self):
+        return f'DeviceAdapter[{endpoint}]'
+
+    @logger.log_with(_LOG)
+    def set_update_hook(self, hook):
+        self._update_hook = hook
+
+    @logger.log_with(_LOG)
     def shadow_to_device(self, state):
-        _LOG.debug(f"{self._endpoint} shadow->device {state}")
         if state:
             self._garden_controller.lights_on(self._endpoint)
         else:
             self._garden_controller.lights_off(self._endpoint)
 
+    @logger.log_with(_LOG)
     def device_to_shadow(self, state):
-        _LOG.debug(f"{self._endpoint} device->shadow {state}")
         pushover.send(_CLIENT_NAME, f"{self._name} {'on' if state else 'off'}!")
-        self.update_hook(state)
+        self._update_hook(state)
 
 
 if __name__ == "__main__":
@@ -77,7 +86,9 @@ if __name__ == "__main__":
         for endpoint, zone in garden_controller.get_zones().items():
             friendly_name = zone['friendly_name']
             adapter = DeviceAdapter(endpoint, friendly_name, garden_controller)
-            adapter.update_hook = iot.create_shadow_handler(endpoint, adapter.shadow_to_device)
+            shadow_update = iot.create_shadow_handler(endpoint, adapter.shadow_to_device)
+            adapter.set_update_hook(shadow_update)
+            garden_controller.set_update_hook(endpoint, adapter.device_to_shadow)
 
             _LOG.info(f"Created handler for {friendly_name}")
 
